@@ -1,0 +1,6 @@
+{
+  "name": "AQL ARENA",
+  "description": "O'zbek tilidagi professional 3D FPS va yoshga mos o'yinlar platformasi — 4 ta olam va 40 ta to'liq o'ynaladigan 3D o'yin.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
