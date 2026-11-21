@@ -1,25 +1,16 @@
-import { WeaponId } from '../types/game';
-
-/**
- * 100% Procedural Web Audio API synthesizer for AQL ARENA.
- * Zero external audio file dependencies.
- */
 class ProceduralAudioEngine {
-  private ctx: AudioContext | null = null;
-  private enabled = true;
-  private volume = 0.75;
-  private noiseBuffer: AudioBuffer | null = null;
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+    this.volume = 0.75;
+    this.noiseBuffer = null;
+  }
 
-  private ensureContext(): AudioContext | null {
+  ensureContext() {
     if (!this.enabled) return null;
     if (!this.ctx && typeof window !== 'undefined') {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      if (AudioCtx) {
-        this.ctx = new AudioCtx();
-      }
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
@@ -28,20 +19,18 @@ class ProceduralAudioEngine {
       const len = this.ctx.sampleRate * 0.5;
       const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) {
-        data[i] = Math.random() * 2 - 1;
-      }
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
       this.noiseBuffer = buf;
     }
     return this.ctx;
   }
 
-  public configure(enabled: boolean, volume: number) {
-    this.enabled = enabled;
-    this.volume = Math.max(0, Math.min(1, volume));
+  configure(enabled, volume) {
+    this.enabled = Boolean(enabled);
+    this.volume = Math.max(0, Math.min(1, Number(volume) || 0));
   }
 
-  public playUiClick() {
+  playUiClick() {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -57,13 +46,12 @@ class ProceduralAudioEngine {
     osc.stop(now + 0.055);
   }
 
-  public playShoot(weapon: WeaponId) {
+  playShoot(weapon) {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
 
     if (weapon === 'wand') {
-      // Friendly bubbly sparkle chime
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
@@ -78,7 +66,6 @@ class ProceduralAudioEngine {
     }
 
     if (weapon === 'blaster') {
-      // Cartoon sci-fi laser pew
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sawtooth';
@@ -92,30 +79,25 @@ class ProceduralAudioEngine {
       return;
     }
 
-    // Tactical firearms: noise burst + low punch
     if (this.noiseBuffer) {
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
-
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
       filter.frequency.value =
         weapon === 'sniper' ? 900 : weapon === 'smg' ? 1850 : 1400;
       filter.Q.value = weapon === 'sniper' ? 0.9 : 1.3;
-
       const gain = ctx.createGain();
       const dur = weapon === 'sniper' ? 0.24 : weapon === 'smg' ? 0.075 : 0.12;
-      const amp = (weapon === 'sniper' ? 0.42 : weapon === 'smg' ? 0.22 : 0.3) * this.volume;
-
+      const amp =
+        (weapon === 'sniper' ? 0.42 : weapon === 'smg' ? 0.22 : 0.3) * this.volume;
       gain.gain.setValueAtTime(amp, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
-
       src.connect(filter).connect(gain).connect(ctx.destination);
       src.start(now);
       src.stop(now + dur + 0.02);
     }
 
-    // Low thump
     const punch = ctx.createOscillator();
     const punchGain = ctx.createGain();
     punch.type = 'sine';
@@ -128,7 +110,7 @@ class ProceduralAudioEngine {
     punch.stop(now + 0.11);
   }
 
-  public playReload() {
+  playReload() {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -145,7 +127,7 @@ class ProceduralAudioEngine {
     });
   }
 
-  public playHit(friendly = false) {
+  playHit(friendly = false) {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -172,27 +154,24 @@ class ProceduralAudioEngine {
     }
   }
 
-  public playFootstep(sprinting: boolean) {
+  playFootstep(sprinting) {
     const ctx = this.ensureContext();
     if (!ctx || !this.noiseBuffer) return;
     const now = ctx.currentTime;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
-
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.frequency.value = sprinting ? 480 : 320;
-
     const gain = ctx.createGain();
     gain.gain.setValueAtTime((sprinting ? 0.07 : 0.045) * this.volume, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
-
     src.connect(filter).connect(gain).connect(ctx.destination);
     src.start(now);
     src.stop(now + 0.07);
   }
 
-  public playCollect() {
+  playCollect() {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -209,7 +188,7 @@ class ProceduralAudioEngine {
     });
   }
 
-  public playBombBeep(high = false) {
+  playBombBeep(high = false) {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -224,7 +203,7 @@ class ProceduralAudioEngine {
     osc.stop(now + 0.09);
   }
 
-  public playVictory() {
+  playVictory() {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -241,7 +220,7 @@ class ProceduralAudioEngine {
     });
   }
 
-  public playDefeat() {
+  playDefeat() {
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;

@@ -1,6 +1,4 @@
-import { GameDefinition } from '../types/game';
-
-export const GAMES_WORLD_10_15: GameDefinition[] = [
+export const GAMES_WORLD_10_15 = [
   {
     id: 'tactical-strike-3d',
     number: 21,

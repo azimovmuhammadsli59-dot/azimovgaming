@@ -1,27 +1,6 @@
 import * as THREE from 'three';
-import { WeaponId } from '../types/game';
 
-/**
- * Builds composite 3-12 part procedural 3D models with bottom-center pivots (y = 0)
- * and distinct roughness/metalness contrast between parts.
- */
-
-export function createActorMesh(options: {
-  role: 'enemy' | 'ally' | 'hostage' | 'helperBot';
-  isCartoon: boolean;
-  primaryColor: string;
-  accentColor: string;
-  shadowTex: THREE.Texture;
-}): {
-  group: THREE.Group;
-  head: THREE.Object3D;
-  leftArm: THREE.Object3D;
-  rightArm: THREE.Object3D;
-  leftLeg: THREE.Object3D;
-  rightLeg: THREE.Object3D;
-  visorMat: THREE.MeshStandardMaterial;
-  hitTarget: THREE.Mesh;
-} {
+export function createActorMesh(options) {
   const group = new THREE.Group();
 
   const bodyMat = new THREE.MeshStandardMaterial({
@@ -47,7 +26,6 @@ export function createActorMesh(options: {
     metalness: 0.2,
   });
 
-  // Contact shadow disc grounded at y = 0.02
   const shadowPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(1.3, 1.3),
     new THREE.MeshBasicMaterial({
@@ -61,7 +39,6 @@ export function createActorMesh(options: {
   shadowPlane.position.y = 0.02;
   group.add(shadowPlane);
 
-  // Legs (grounded at y = 0)
   const leftLeg = new THREE.Group();
   leftLeg.position.set(-0.2, 0.7, 0);
   const legGeo = new THREE.BoxGeometry(0.24, 0.7, 0.26);
@@ -85,7 +62,6 @@ export function createActorMesh(options: {
   rightLeg.add(rBoot);
   group.add(rightLeg);
 
-  // Torso
   const torso = new THREE.Mesh(
     new THREE.BoxGeometry(0.68, 0.78, 0.42),
     bodyMat,
@@ -95,7 +71,6 @@ export function createActorMesh(options: {
   torso.receiveShadow = true;
   group.add(torso);
 
-  // Chest tactical rig / plate
   const chestPlate = new THREE.Mesh(
     new THREE.BoxGeometry(0.58, 0.48, 0.47),
     armorMat,
@@ -103,7 +78,6 @@ export function createActorMesh(options: {
   chestPlate.position.y = 1.15;
   group.add(chestPlate);
 
-  // Glowing core badge
   const coreBadge = new THREE.Mesh(
     new THREE.BoxGeometry(0.16, 0.12, 0.5),
     visorMat,
@@ -111,7 +85,6 @@ export function createActorMesh(options: {
   coreBadge.position.y = 1.18;
   group.add(coreBadge);
 
-  // Head group
   const head = new THREE.Group();
   head.position.set(0, 1.66, 0);
   const helmet = new THREE.Mesh(
@@ -131,7 +104,6 @@ export function createActorMesh(options: {
   head.add(visor);
 
   if (options.isCartoon) {
-    // Friendly antenna
     const stem = new THREE.Mesh(
       new THREE.CylinderGeometry(0.025, 0.025, 0.24, 8),
       armorMat,
@@ -144,7 +116,6 @@ export function createActorMesh(options: {
   }
   group.add(head);
 
-  // Arms
   const leftArm = new THREE.Group();
   leftArm.position.set(-0.46, 1.38, 0);
   const lArmMesh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.62, 0.22), bodyMat);
@@ -164,7 +135,6 @@ export function createActorMesh(options: {
   const rPauldron = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.2, 0.28), armorMat);
   rightArm.add(rPauldron);
 
-  // Held blaster/rifle for combatants
   if (options.role === 'enemy' || options.role === 'ally') {
     const gun = new THREE.Mesh(
       new THREE.BoxGeometry(0.1, 0.14, 0.65),
@@ -176,7 +146,6 @@ export function createActorMesh(options: {
   }
   group.add(rightArm);
 
-  // Simplified invisible collision / raycast hit box covering full character
   const hitTarget = new THREE.Mesh(
     new THREE.BoxGeometry(0.95, 1.95, 0.85),
     new THREE.MeshBasicMaterial({ visible: false }),
@@ -196,11 +165,7 @@ export function createActorMesh(options: {
   };
 }
 
-export function createViewModelWeapon(weaponId: WeaponId): {
-  group: THREE.Group;
-  muzzlePoint: THREE.Object3D;
-  muzzleFlash: THREE.Mesh;
-} {
+export function createViewModelWeapon(weaponId) {
   const group = new THREE.Group();
 
   const receiverMat = new THREE.MeshStandardMaterial({
@@ -247,7 +212,6 @@ export function createViewModelWeapon(weaponId: WeaponId): {
     const length =
       weaponId === 'sniper' ? 0.92 : weaponId === 'rifle' ? 0.72 : weaponId === 'pistol' ? 0.36 : 0.56;
 
-    // Receiver
     const receiver = new THREE.Mesh(
       new THREE.BoxGeometry(0.08, 0.11, length * 0.65),
       receiverMat,
@@ -255,7 +219,6 @@ export function createViewModelWeapon(weaponId: WeaponId): {
     receiver.position.set(0.26, -0.22, -0.45);
     group.add(receiver);
 
-    // Barrel
     const barrel = new THREE.Mesh(
       new THREE.CylinderGeometry(0.018, 0.022, length * 0.65, 10),
       gripMat,
@@ -264,7 +227,6 @@ export function createViewModelWeapon(weaponId: WeaponId): {
     barrel.position.set(0.26, -0.195, -0.45 - length * 0.42);
     group.add(barrel);
 
-    // Magazine
     const mag = new THREE.Mesh(
       new THREE.BoxGeometry(0.045, 0.15, 0.075),
       gripMat,
@@ -273,7 +235,6 @@ export function createViewModelWeapon(weaponId: WeaponId): {
     mag.rotation.x = 0.2;
     group.add(mag);
 
-    // Optic / Scope
     const optic = new THREE.Mesh(
       weaponId === 'sniper'
         ? new THREE.CylinderGeometry(0.032, 0.032, 0.28, 12)
@@ -284,7 +245,6 @@ export function createViewModelWeapon(weaponId: WeaponId): {
     optic.position.set(0.26, -0.14, -0.45);
     group.add(optic);
 
-    // Accent strip
     const strip = new THREE.Mesh(
       new THREE.BoxGeometry(0.084, 0.02, length * 0.4),
       accentMat,
@@ -313,10 +273,7 @@ export function createViewModelWeapon(weaponId: WeaponId): {
   return { group, muzzlePoint, muzzleFlash };
 }
 
-export function createTargetProp(
-  kind: 'ring' | 'fruit' | 'crystal' | 'star' | 'checkpoint' | 'bomb' | 'flag' | 'meteor',
-  colorHex: string,
-): { group: THREE.Group; hitTarget: THREE.Mesh } {
+export function createTargetProp(kind, colorHex) {
   const group = new THREE.Group();
   const mat = new THREE.MeshStandardMaterial({
     color: colorHex,
@@ -333,10 +290,7 @@ export function createTargetProp(
       new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 }),
     );
     inner.rotation.x = Math.PI / 2;
-    const bullseye = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 12, 12),
-      mat,
-    );
+    const bullseye = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), mat);
     group.add(outer, inner, bullseye);
   } else if (kind === 'fruit') {
     const body = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), mat);
@@ -409,14 +363,10 @@ export function createTargetProp(
       new THREE.MeshStandardMaterial({ color: '#e2e8f0', metalness: 0.8, roughness: 0.2 }),
     );
     pole.position.y = 1.3;
-    const cloth = new THREE.Mesh(
-      new THREE.BoxGeometry(0.95, 0.55, 0.05),
-      mat,
-    );
+    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.55, 0.05), mat);
     cloth.position.set(0.48, 2.25, 0);
     group.add(base, pole, cloth);
   } else {
-    // meteor toy
     const core = new THREE.Mesh(new THREE.DodecahedronGeometry(0.55, 0), mat);
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.72, 0.06, 8, 20),

@@ -1,73 +1,16 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import {
-  CameraPerspective,
-  DifficultyLevel,
-  GameDefinition,
-  GraphicsQuality,
-  HudSnapshot,
-  WeaponId,
-} from '../types/game';
-import { WEAPONS } from '../games/weapons';
-import { audioEngine } from './AudioEngine';
-import { createActorMesh, createTargetProp, createViewModelWeapon } from './EntityFactory';
-import { AabbCollider, buildGameMap, BuiltMap } from './MapBuilder';
-import { createContactShadowTexture } from './ProceduralTextures';
+import { WEAPONS } from '../weapons.js';
+import { audioEngine } from '../audio.js';
+import { createActorMesh, createTargetProp, createViewModelWeapon } from './entities.js';
+import { buildGameMap } from './mapBuilder.js';
+import { createContactShadowTexture } from './textures.js';
 
-// Pre-allocated math helpers at module scope (zero GC in loop)
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
-
-interface ActiveParticle {
-  mesh: THREE.Mesh;
-  vel: THREE.Vector3;
-  life: number;
-  maxLife: number;
-  isSmoke: boolean;
-}
-
-interface ActiveTracer {
-  mesh: THREE.Mesh;
-  life: number;
-}
-
-interface AiActor {
-  id: number;
-  role: 'enemy' | 'ally' | 'hostage' | 'helperBot';
-  group: THREE.Group;
-  head: THREE.Object3D;
-  leftArm: THREE.Object3D;
-  rightArm: THREE.Object3D;
-  leftLeg: THREE.Object3D;
-  rightLeg: THREE.Object3D;
-  hitTarget: THREE.Mesh;
-  hp: number;
-  maxHp: number;
-  alive: boolean;
-  rescued?: boolean;
-  following?: boolean;
-  activated?: boolean;
-  respawnTimer: number;
-  fireCooldown: number;
-  patrolTarget: THREE.Vector3;
-  walkPhase: number;
-}
-
-interface WorldTarget {
-  id: number;
-  group: THREE.Group;
-  hitTarget: THREE.Mesh;
-  active: boolean;
-  colorKey: string;
-  colorUz: string;
-  basePos: THREE.Vector3;
-  phase: number;
-  respawnTimer: number;
-  kind: 'ring' | 'fruit' | 'crystal' | 'star' | 'checkpoint' | 'bomb' | 'flag' | 'meteor';
-}
 
 const COLOR_CHOICES = [
   { key: 'red', hex: '#ef4444', uz: 'QIZIL' },
@@ -76,116 +19,8 @@ const COLOR_CHOICES = [
   { key: 'green', hex: '#22c55e', uz: 'YASHIL' },
 ];
 
-export interface FpsEngineConfig {
-  container: HTMLElement;
-  game: GameDefinition;
-  quality: GraphicsQuality;
-  difficulty: DifficultyLevel;
-  sensitivity: number;
-  onHudUpdate: (snapshot: HudSnapshot) => void;
-  onGameEnd: (won: boolean, score: number, reason: string) => void;
-}
-
 export class FpsEngine {
-  private container: HTMLElement;
-  private game: GameDefinition;
-  private quality: GraphicsQuality;
-  private difficulty: DifficultyLevel;
-  private sensitivity: number;
-  private onHudUpdate: (s: HudSnapshot) => void;
-  private onGameEnd: (won: boolean, score: number, reason: string) => void;
-
-  private renderer!: THREE.WebGLRenderer;
-  private scene!: THREE.Scene;
-  private camera!: THREE.PerspectiveCamera;
-  private envTarget: THREE.WebGLRenderTarget | null = null;
-  private isSoftwareGl = false;
-  private builtMap!: BuiltMap;
-  private shadowTex!: THREE.CanvasTexture;
-
-  private clock = new THREE.Clock();
-  private frameId = 0;
-  private disposed = false;
-
-  // Player state
-  private playerPos = new THREE.Vector3();
-  private playerVel = new THREE.Vector3();
-  private yaw = 0;
-  private pitch = 0;
-  private isGrounded = true;
-  private isCrouching = false;
-  private isSprinting = false;
-  private currentEyeHeight = 1.7;
-  private health = 100;
-  private maxHealth = 100;
-  private armor = 100;
-  private maxArmor = 100;
-  private cameraMode: CameraPerspective;
-  private playerAvatarGroup: THREE.Group | null = null;
-
-  // Weapons & Viewmodel
-  private weaponIndex = 0;
-  private currentWeaponId: WeaponId;
-  private ammo = 30;
-  private reserveAmmo = 120;
-  private reloading = false;
-  private reloadTimer = 0;
-  private fireCooldown = 0;
-  private recoilPitch = 0;
-  private recoilKickZ = 0;
-  private muzzleFlashTimer = 0;
-  private isScoped = false;
-  private viewModels = new Map<
-    WeaponId,
-    { group: THREE.Group; muzzlePoint: THREE.Object3D; muzzleFlash: THREE.Mesh }
-  >();
-  private muzzleLight!: THREE.PointLight;
-
-  // Match / Mission state
-  private score = 0;
-  private kills = 0;
-  private deaths = 0;
-  private goalProgress = 0;
-  private timeRemaining = 120;
-  private round = 1;
-  private roundsWon = 0;
-  private status: 'playing' | 'won' | 'lost' = 'playing';
-  private endReason = '';
-  private isPaused = false;
-  private isPointerLocked = false;
-  private bombState: 'none' | 'carried' | 'planted' | 'defused' | 'exploded' = 'none';
-  private bombTimer = 40;
-  private bombBeepTimer = 0;
-  private defuseHoldProgress = 0;
-  private carryingFlag = false;
-  private targetColorObj = COLOR_CHOICES[0];
-
-  // Dynamic entities
-  private actors: AiActor[] = [];
-  private targets: WorldTarget[] = [];
-  private particles: ActiveParticle[] = [];
-  private tracers: ActiveTracer[] = [];
-  private bombProp: THREE.Group | null = null;
-  private enemyFlagProp: THREE.Group | null = null;
-  private killFeed: Array<{ id: number; text: string; color: string }> = [];
-  private feedCounter = 1;
-  private hitMarkerAt = 0;
-  private damageFlashAt = 0;
-  private footstepTimer = 0;
-  private hudEmitTimer = 0;
-
-  // Input state
-  private keys: Record<string, boolean> = {};
-  private mouseDown = false;
-  private mobileMove = { x: 0, y: 0 };
-  private interactHold = false;
-
-  // Shared particle geometries
-  private particleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
-  private smokeGeo = new THREE.SphereGeometry(0.28, 8, 8);
-  private raycaster = new THREE.Raycaster();
-
-  constructor(config: FpsEngineConfig) {
+  constructor(config) {
     this.container = config.container;
     this.game = config.game;
     this.quality = config.quality;
@@ -194,17 +29,88 @@ export class FpsEngine {
     this.onHudUpdate = config.onHudUpdate;
     this.onGameEnd = config.onGameEnd;
 
-    this.cameraMode = config.game.defaultCamera;
-    this.currentWeaponId = config.game.weapons[0] || 'rifle';
-    this.timeRemaining = config.game.durationSeconds;
+    this.clock = new THREE.Clock();
+    this.frameId = 0;
+    this.disposed = false;
 
-    if (this.game.ageGroup === '3-5') {
-      this.armor = 0;
-      this.maxArmor = 0;
-    } else if (this.game.ageGroup === '6-9') {
-      this.armor = 50;
-      this.maxArmor = 50;
-    }
+    this.playerPos = new THREE.Vector3();
+    this.playerVel = new THREE.Vector3();
+    this.yaw = 0;
+    this.pitch = 0;
+    this.isGrounded = true;
+    this.isCrouching = false;
+    this.isSprinting = false;
+    this.currentEyeHeight = 1.7;
+    this.health = 100;
+    this.maxHealth = 100;
+    this.armor = this.game.ageGroup === '3-5' ? 0 : this.game.ageGroup === '6-9' ? 50 : 100;
+    this.maxArmor = this.armor;
+    this.cameraMode = this.game.defaultCamera;
+    this.playerAvatarGroup = null;
+
+    this.weaponIndex = 0;
+    this.currentWeaponId = this.game.weapons[0] || 'rifle';
+    this.ammo = 30;
+    this.reserveAmmo = 120;
+    this.reloading = false;
+    this.reloadTimer = 0;
+    this.fireCooldown = 0;
+    this.recoilPitch = 0;
+    this.recoilKickZ = 0;
+    this.muzzleFlashTimer = 0;
+    this.isScoped = false;
+    this.viewModels = new Map();
+
+    this.score = 0;
+    this.kills = 0;
+    this.deaths = 0;
+    this.goalProgress = 0;
+    this.timeRemaining = this.game.durationSeconds;
+    this.round = 1;
+    this.roundsWon = 0;
+    this.status = 'playing';
+    this.endReason = '';
+    this.isPaused = false;
+    this.isPointerLocked = false;
+    this.bombState = 'none';
+    this.bombTimer = 40;
+    this.bombBeepTimer = 0;
+    this.defuseHoldProgress = 0;
+    this.carryingFlag = false;
+    this.targetColorObj = COLOR_CHOICES[0];
+
+    this.actors = [];
+    this.targets = [];
+    this.particles = [];
+    this.tracers = [];
+    this.bombProp = null;
+    this.enemyFlagProp = null;
+    this.killFeed = [];
+    this.feedCounter = 1;
+    this.hitMarkerAt = 0;
+    this.damageFlashAt = 0;
+    this.footstepTimer = 0;
+    this.hudEmitTimer = 0;
+
+    this.keys = {};
+    this.mouseDown = false;
+    this.mobileMove = { x: 0, y: 0 };
+    this.interactHold = false;
+
+    this.particleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
+    this.smokeGeo = new THREE.SphereGeometry(0.28, 8, 8);
+    this.raycaster = new THREE.Raycaster();
+
+    this.handleResize = this.handleResize.bind(this);
+    this.handleKeyDown = this.handleKeyDown.bind(this);
+    this.handleKeyUp = this.handleKeyUp.bind(this);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
+    this.handleMouseUp = this.handleMouseUp.bind(this);
+    this.handleWheel = this.handleWheel.bind(this);
+    this.handleContextMenu = this.handleContextMenu.bind(this);
+    this.handlePointerLockChange = this.handlePointerLockChange.bind(this);
+    this.handleContextLost = (e) => e.preventDefault();
 
     this.initRendererAndScene();
     this.initPlayerAndWeapons();
@@ -214,7 +120,7 @@ export class FpsEngine {
     this.startLoop();
   }
 
-  private detectSoftwareGl(): boolean {
+  detectSoftwareGl() {
     try {
       const probe = document.createElement('canvas');
       const gl = probe.getContext('webgl2') || probe.getContext('webgl');
@@ -229,7 +135,7 @@ export class FpsEngine {
     }
   }
 
-  private initRendererAndScene() {
+  initRendererAndScene() {
     this.isSoftwareGl = this.detectSoftwareGl();
     const width = Math.max(320, this.container.clientWidth || window.innerWidth);
     const height = Math.max(240, this.container.clientHeight || window.innerHeight);
@@ -257,7 +163,6 @@ export class FpsEngine {
     this.renderer.domElement.style.height = '100%';
     this.container.appendChild(this.renderer.domElement);
 
-    // Scene & Fog
     this.scene = new THREE.Scene();
     const p = this.game.mapPalette;
     this.scene.background = new THREE.Color(p.skyTop);
@@ -269,7 +174,6 @@ export class FpsEngine {
     this.camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 280);
     this.scene.add(this.camera);
 
-    // Studio IBL Environment Reflection
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     const roomEnv = new RoomEnvironment();
     this.envTarget = pmrem.fromScene(roomEnv, 0.04);
@@ -277,7 +181,6 @@ export class FpsEngine {
     roomEnv.dispose();
     pmrem.dispose();
 
-    // 3-point warm/cool lighting
     const hemi = new THREE.HemisphereLight(
       p.hemiSkyColor,
       p.hemiGroundColor,
@@ -317,12 +220,11 @@ export class FpsEngine {
     }
   }
 
-  private initPlayerAndWeapons() {
+  initPlayerAndWeapons() {
     this.playerPos.copy(this.builtMap.spawnPlayer);
     this.yaw = 0;
     this.pitch = 0;
 
-    // Create viewmodels for every weapon in game.weapons
     this.game.weapons.forEach((wId) => {
       const vm = createViewModelWeapon(wId);
       vm.group.visible = wId === this.currentWeaponId && this.cameraMode === 'fps';
@@ -336,7 +238,6 @@ export class FpsEngine {
 
     this.equipWeapon(0);
 
-    // Third-person player avatar (visible when cameraMode === 'tps')
     if (this.game.allowCameraToggle) {
       const avatar = createActorMesh({
         role: 'ally',
@@ -351,7 +252,7 @@ export class FpsEngine {
     }
   }
 
-  private equipWeapon(idx: number) {
+  equipWeapon(idx) {
     if (idx < 0 || idx >= this.game.weapons.length) return;
     this.weaponIndex = idx;
     this.currentWeaponId = this.game.weapons[idx];
@@ -367,7 +268,7 @@ export class FpsEngine {
     });
   }
 
-  private clearDynamicEntities() {
+  clearDynamicEntities() {
     this.actors.forEach((a) => this.scene.remove(a.group));
     this.actors = [];
     this.targets.forEach((t) => this.scene.remove(t.group));
@@ -382,14 +283,13 @@ export class FpsEngine {
     }
   }
 
-  private spawnMissionEntities() {
+  spawnMissionEntities() {
     this.clearDynamicEntities();
     const g = this.game;
     const isCartoon = g.ageGroup === '3-5' || g.ageGroup === '6-9';
     const diffMult =
       this.difficulty === 'easy' ? 0.75 : this.difficulty === 'hard' ? 1.35 : 1.0;
 
-    // 1. Spawn friendly helper bots / allies
     for (let i = 0; i < g.allyCount; i++) {
       const sp = this.builtMap.spawnAllies[i % this.builtMap.spawnAllies.length];
       const actor = createActorMesh({
@@ -424,7 +324,6 @@ export class FpsEngine {
       });
     }
 
-    // 2. Spawn enemies (for combat/tactical modes)
     for (let i = 0; i < g.enemyCount; i++) {
       const sp = this.builtMap.spawnEnemies[i % this.builtMap.spawnEnemies.length];
       const actor = createActorMesh({
@@ -459,7 +358,6 @@ export class FpsEngine {
       });
     }
 
-    // 3. Special mission objectives
     if (
       g.mechanic === 'target-pop' ||
       g.mechanic === 'color-match' ||
@@ -469,13 +367,11 @@ export class FpsEngine {
       g.mechanic === 'helper-bots'
     ) {
       const count =
-        g.mechanic === 'maze-checkpoint'
-          ? g.targetGoal
-          : g.mechanic === 'helper-bots'
+        g.mechanic === 'maze-checkpoint' || g.mechanic === 'helper-bots'
           ? g.targetGoal
           : Math.min(8, g.targetGoal);
 
-      const kind: WorldTarget['kind'] =
+      const kind =
         g.id.includes('meva')
           ? 'fruit'
           : g.id.includes('lazer') && g.ageGroup === '3-5'
@@ -493,7 +389,6 @@ export class FpsEngine {
       }
 
       if (g.mechanic === 'helper-bots') {
-        // Spawn friendly helper robots around the park to energize!
         for (let i = 0; i < count; i++) {
           const angle = (i / count) * Math.PI * 2;
           const r = 9 + (i % 3) * 5;
@@ -604,7 +499,7 @@ export class FpsEngine {
     }
   }
 
-  private bindEvents() {
+  bindEvents() {
     window.addEventListener('resize', this.handleResize);
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
@@ -617,32 +512,28 @@ export class FpsEngine {
     this.renderer.domElement.addEventListener('webglcontextlost', this.handleContextLost);
   }
 
-  private handleContextLost = (e: Event) => {
-    e.preventDefault();
-  };
-
-  private handleContextMenu = (e: MouseEvent) => {
+  handleContextMenu(e) {
     if (this.isPointerLocked) e.preventDefault();
-  };
+  }
 
-  private handlePointerLockChange = () => {
+  handlePointerLockChange() {
     this.isPointerLocked = document.pointerLockElement === this.renderer.domElement;
     if (!this.isPointerLocked && this.status === 'playing') {
       this.mouseDown = false;
     }
     this.emitHud();
-  };
+  }
 
-  public requestPointerLock() {
+  requestPointerLock() {
     if (this.status !== 'playing' || this.isPaused) return;
     try {
       this.renderer.domElement.requestPointerLock?.();
     } catch {
-      // Mobile browsers don't support pointer lock; touch joystick still works!
+      // ignore on touch devices
     }
   }
 
-  public setPaused(paused: boolean) {
+  setPaused(paused) {
     this.isPaused = paused;
     if (paused && document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock?.();
@@ -650,7 +541,7 @@ export class FpsEngine {
     this.emitHud();
   }
 
-  public restartMatch() {
+  restartMatch() {
     this.health = this.maxHealth;
     this.armor = this.maxArmor;
     this.score = 0;
@@ -671,7 +562,7 @@ export class FpsEngine {
     this.emitHud();
   }
 
-  public toggleCameraMode() {
+  toggleCameraMode() {
     if (!this.game.allowCameraToggle) return;
     this.cameraMode = this.cameraMode === 'fps' ? 'tps' : 'fps';
     this.viewModels.forEach((vm, id) => {
@@ -684,13 +575,12 @@ export class FpsEngine {
     this.emitHud();
   }
 
-  // Mobile & UI touch control hooks
-  public setMobileMove(x: number, y: number) {
+  setMobileMove(x, y) {
     this.mobileMove.x = Math.max(-1, Math.min(1, x));
     this.mobileMove.y = Math.max(-1, Math.min(1, y));
   }
 
-  public addLookDelta(dx: number, dy: number) {
+  addLookDelta(dx, dy) {
     const sens = 0.0032 * this.sensitivity;
     this.yaw -= dx * sens;
     this.pitch = THREE.MathUtils.clamp(
@@ -700,52 +590,52 @@ export class FpsEngine {
     );
   }
 
-  public triggerFire(down: boolean) {
+  triggerFire(down) {
     this.mouseDown = down;
     if (down && !this.isPaused && this.status === 'playing') {
       this.tryShoot();
     }
   }
 
-  public triggerJump() {
+  triggerJump() {
     if (this.isGrounded && !this.isPaused && this.status === 'playing') {
       this.playerVel.y = 7.4;
       this.isGrounded = false;
     }
   }
 
-  public triggerReload() {
+  triggerReload() {
     this.startReload();
   }
 
-  public triggerCrouch() {
+  triggerCrouch() {
     this.isCrouching = !this.isCrouching;
   }
 
-  public triggerScope() {
+  triggerScope() {
     this.toggleScope();
   }
 
-  public triggerInteract(down: boolean) {
+  triggerInteract(down) {
     this.interactHold = down;
     if (down) this.tryInstantInteract();
   }
 
-  public switchWeapon(index: number) {
+  switchWeapon(index) {
     this.equipWeapon(index);
     this.emitHud();
   }
 
-  private handleResize = () => {
+  handleResize() {
     if (this.disposed) return;
     const width = Math.max(320, this.container.clientWidth || window.innerWidth);
     const height = Math.max(240, this.container.clientHeight || window.innerHeight);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
-  };
+  }
 
-  private handleKeyDown = (e: KeyboardEvent) => {
+  handleKeyDown(e) {
     this.keys[e.code] = true;
     if (e.code === 'Escape') {
       this.setPaused(!this.isPaused);
@@ -757,18 +647,10 @@ export class FpsEngine {
       this.playerVel.y = 7.4;
       this.isGrounded = false;
     }
-    if (e.code === 'KeyC') {
-      this.isCrouching = !this.isCrouching;
-    }
-    if (e.code === 'KeyR') {
-      this.startReload();
-    }
-    if (e.code === 'KeyF') {
-      this.toggleScope();
-    }
-    if (e.code === 'KeyV') {
-      this.toggleCameraMode();
-    }
+    if (e.code === 'KeyC') this.isCrouching = !this.isCrouching;
+    if (e.code === 'KeyR') this.startReload();
+    if (e.code === 'KeyF') this.toggleScope();
+    if (e.code === 'KeyV') this.toggleCameraMode();
     if (e.code === 'KeyE') {
       this.interactHold = true;
       this.tryInstantInteract();
@@ -777,17 +659,17 @@ export class FpsEngine {
     if (e.code === 'Digit2') this.switchWeapon(1);
     if (e.code === 'Digit3') this.switchWeapon(2);
     if (e.code === 'Digit4') this.switchWeapon(3);
-  };
+  }
 
-  private handleKeyUp = (e: KeyboardEvent) => {
+  handleKeyUp(e) {
     this.keys[e.code] = false;
     if (e.code === 'KeyE') {
       this.interactHold = false;
       this.defuseHoldProgress = 0;
     }
-  };
+  }
 
-  private handleMouseMove = (e: MouseEvent) => {
+  handleMouseMove(e) {
     if (!this.isPointerLocked || this.isPaused || this.status !== 'playing') return;
     const zoomFactor = this.isScoped ? 0.45 : 1;
     const sens = 0.0022 * this.sensitivity * zoomFactor;
@@ -797,9 +679,9 @@ export class FpsEngine {
       -Math.PI / 2.15,
       Math.PI / 2.15,
     );
-  };
+  }
 
-  private handleMouseDown = (e: MouseEvent) => {
+  handleMouseDown(e) {
     if (this.isPaused || this.status !== 'playing') return;
     if (!this.isPointerLocked && e.target === this.renderer.domElement) {
       this.requestPointerLock();
@@ -812,21 +694,21 @@ export class FpsEngine {
     } else if (e.button === 2) {
       this.toggleScope();
     }
-  };
+  }
 
-  private handleMouseUp = (e: MouseEvent) => {
+  handleMouseUp(e) {
     if (e.button === 0) this.mouseDown = false;
-  };
+  }
 
-  private handleWheel = (e: WheelEvent) => {
+  handleWheel(e) {
     if (!this.isPointerLocked || this.game.weapons.length <= 1) return;
     const dir = e.deltaY > 0 ? 1 : -1;
     const next =
       (this.weaponIndex + dir + this.game.weapons.length) % this.game.weapons.length;
     this.switchWeapon(next);
-  };
+  }
 
-  private toggleScope() {
+  toggleScope() {
     const spec = WEAPONS[this.currentWeaponId];
     if (spec.scopeZoom <= 1) return;
     this.isScoped = !this.isScoped;
@@ -836,7 +718,7 @@ export class FpsEngine {
     });
   }
 
-  private startReload() {
+  startReload() {
     const spec = WEAPONS[this.currentWeaponId];
     if (this.reloading || this.ammo >= spec.magSize || this.reserveAmmo <= 0) return;
     this.reloading = true;
@@ -845,8 +727,7 @@ export class FpsEngine {
     audioEngine.playReload();
   }
 
-  private tryInstantInteract() {
-    // Toggle nearby sliding door
+  tryInstantInteract() {
     for (const door of this.builtMap.doors) {
       const dist = _v1
         .set(door.closedPos.x, 0, door.closedPos.z)
@@ -857,7 +738,6 @@ export class FpsEngine {
       }
     }
 
-    // Rescue hostage VIPs
     if (this.game.mechanic === 'hostage-rescue') {
       for (const actor of this.actors) {
         if (actor.role === 'hostage' && !actor.rescued) {
@@ -872,14 +752,14 @@ export class FpsEngine {
     }
   }
 
-  private pushKillFeed(text: string, color: string) {
+  pushKillFeed(text, color) {
     this.killFeed = [
       { id: this.feedCounter++, text, color },
       ...this.killFeed.slice(0, 3),
     ];
   }
 
-  private tryShoot() {
+  tryShoot() {
     if (this.reloading || this.fireCooldown > 0 || this.status !== 'playing') return;
     const spec = WEAPONS[this.currentWeaponId];
     if (this.ammo <= 0) {
@@ -902,19 +782,14 @@ export class FpsEngine {
       vm.muzzleFlash.rotation.z = Math.random() * Math.PI;
     }
 
-    // Raycast from camera center with slight weapon spread
     const spread = spec.spread * (this.isCrouching ? 0.5 : 1) * (this.isScoped ? 0.15 : 1);
     const sx = (Math.random() - 0.5) * spread;
     const sy = (Math.random() - 0.5) * spread;
     this.raycaster.setFromCamera(new THREE.Vector2(sx, sy), this.camera);
     this.raycaster.far = spec.range;
 
-    // Collect raycastable meshes
-    const hitMeshes: THREE.Object3D[] = [...this.builtMap.worldMeshes];
-    const hitLookup = new Map<
-      THREE.Object3D,
-      { type: 'actor'; actor: AiActor } | { type: 'target'; target: WorldTarget }
-    >();
+    const hitMeshes = [...this.builtMap.worldMeshes];
+    const hitLookup = new Map();
 
     for (const actor of this.actors) {
       if (actor.alive && (actor.role === 'enemy' || actor.role === 'helperBot')) {
@@ -931,7 +806,6 @@ export class FpsEngine {
 
     const hits = this.raycaster.intersectObjects(hitMeshes, false);
 
-    // Tracer beam start & end
     _v1.set(0.22, -0.15, -0.75).applyMatrix4(this.camera.matrixWorld);
     const endPoint =
       hits.length > 0
@@ -952,7 +826,6 @@ export class FpsEngine {
           this.handleTargetHit(match.target, firstHit.point);
         }
       } else {
-        // Wall or physics crate impact
         this.spawnImpactParticles(firstHit.point, '#cbd5e1', 5, true);
         for (const crate of this.builtMap.physicsCrates) {
           if (crate.mesh === firstHit.object) {
@@ -968,7 +841,7 @@ export class FpsEngine {
     }
   }
 
-  private handleActorHit(actor: AiActor, damage: number, hitPoint: THREE.Vector3) {
+  handleActorHit(actor, damage, hitPoint) {
     if (actor.role === 'helperBot') {
       if (!actor.activated) {
         actor.activated = true;
@@ -1007,10 +880,9 @@ export class FpsEngine {
         this.game.mechanic === 'tactical-round'
       ) {
         this.goalProgress++;
-        this.pushKillFeed(`Raqib zararsizlantirildi! (+100)`, '#fbbf24');
+        this.pushKillFeed('Raqib zararsizlantirildi! (+100)', '#fbbf24');
       }
 
-      // Respawn logic for modes that need continuous opponents
       if (
         this.game.mechanic === 'team-skirmish' ||
         this.game.mechanic === 'capture-flag' ||
@@ -1024,7 +896,7 @@ export class FpsEngine {
     }
   }
 
-  private handleTargetHit(target: WorldTarget, hitPoint: THREE.Vector3) {
+  handleTargetHit(target, hitPoint) {
     if (this.game.mechanic === 'color-match') {
       if (target.colorKey === this.targetColorObj.key) {
         this.goalProgress++;
@@ -1033,10 +905,10 @@ export class FpsEngine {
         this.spawnImpactParticles(hitPoint, '#fde047', 12, false);
         this.targetColorObj =
           COLOR_CHOICES[Math.floor(Math.random() * COLOR_CHOICES.length)];
-        this.pushKillFeed(`To‘g‘ri rang! (+100)`, '#22c55e');
+        this.pushKillFeed('To‘g‘ri rang! (+100)', '#22c55e');
       } else {
         audioEngine.playUiClick();
-        this.pushKillFeed(`Boshqa rang tanlandi: ${this.targetColorObj.uz} kerak`, '#f59e0b');
+        this.pushKillFeed(`Boshqa rang: ${this.targetColorObj.uz} kerak`, '#f59e0b');
         return;
       }
     } else {
@@ -1056,7 +928,7 @@ export class FpsEngine {
     this.checkWinProgress();
   }
 
-  private checkRoundOrWaveAdvance() {
+  checkRoundOrWaveAdvance() {
     const aliveEnemies = this.actors.filter((a) => a.role === 'enemy' && a.alive).length;
     if (aliveEnemies === 0) {
       if (
@@ -1068,7 +940,6 @@ export class FpsEngine {
           this.roundsWon++;
           this.health = Math.min(this.maxHealth, this.health + 35);
           this.pushKillFeed(`${this.round}-bosqich boshlandi!`, '#38bdf8');
-          // Respawn enemies for next wave/round
           this.actors.forEach((a, idx) => {
             if (a.role === 'enemy') {
               const sp =
@@ -1087,18 +958,21 @@ export class FpsEngine {
     }
   }
 
-  private checkWinProgress() {
+  checkWinProgress() {
     if (this.status !== 'playing') return;
     if (
       this.game.mechanic !== 'tactical-round' &&
       this.game.mechanic !== 'bomb-mission' &&
       this.goalProgress >= this.game.targetGoal
     ) {
-      this.finishGame(true, `Missiya muvaffaqiyatli bajarildi! (${this.goalProgress}/${this.game.targetGoal})`);
+      this.finishGame(
+        true,
+        `Missiya muvaffaqiyatli bajarildi! (${this.goalProgress}/${this.game.targetGoal})`,
+      );
     }
   }
 
-  private finishGame(won: boolean, reason: string) {
+  finishGame(won, reason) {
     if (this.status !== 'playing') return;
     this.status = won ? 'won' : 'lost';
     this.endReason = reason;
@@ -1115,7 +989,7 @@ export class FpsEngine {
     this.onGameEnd(won, this.score, reason);
   }
 
-  private spawnTracer(start: THREE.Vector3, end: THREE.Vector3, colorHex: string) {
+  spawnTracer(start, end, colorHex) {
     const dist = start.distanceTo(end);
     if (dist < 0.2) return;
     const geo = new THREE.CylinderGeometry(0.025, 0.025, dist, 6);
@@ -1132,12 +1006,7 @@ export class FpsEngine {
     this.tracers.push({ mesh, life: 0.08 });
   }
 
-  private spawnImpactParticles(
-    origin: THREE.Vector3,
-    colorHex: string,
-    count: number,
-    includeSmoke: boolean,
-  ) {
+  spawnImpactParticles(origin, colorHex, count, includeSmoke) {
     const actualCount = this.quality === 'low' ? Math.ceil(count / 2) : count;
     for (let i = 0; i < actualCount; i++) {
       const isSmoke = includeSmoke && i % 3 === 0;
@@ -1163,13 +1032,13 @@ export class FpsEngine {
     }
   }
 
-  private resolveCollisions(pos: THREE.Vector3, radius: number, height: number) {
+  resolveCollisions(pos, radius, height) {
     const bound = this.builtMap.arenaHalfExtent - radius - 0.6;
     pos.x = THREE.MathUtils.clamp(pos.x, -bound, bound);
     pos.z = THREE.MathUtils.clamp(pos.z, -bound, bound);
 
     for (let i = 0; i < this.builtMap.colliders.length; i++) {
-      const c: AabbCollider = this.builtMap.colliders[i];
+      const c = this.builtMap.colliders[i];
       if (pos.y >= c.maxY - 0.1 || pos.y + height <= c.minY) continue;
       if (
         pos.x + radius > c.minX &&
@@ -1190,7 +1059,7 @@ export class FpsEngine {
     }
   }
 
-  private updatePlayer(dt: number) {
+  updatePlayer(dt) {
     const forwardInput =
       (this.keys['KeyW'] || this.keys['ArrowUp'] ? 1 : 0) -
       (this.keys['KeyS'] || this.keys['ArrowDown'] ? 1 : 0) -
@@ -1211,8 +1080,8 @@ export class FpsEngine {
       (this.isSprinting ? 1.45 : this.isCrouching ? 0.55 : 1.0) *
       (this.isScoped ? 0.6 : 1.0);
 
-    _v1.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); // forward
-    _v2.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw)); // right
+    _v1.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    _v2.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     _dir.set(0, 0, 0).addScaledVector(_v1, forwardInput).addScaledVector(_v2, strafeInput);
     if (_dir.lengthSq() > 0.001) {
       _dir.normalize();
@@ -1228,7 +1097,6 @@ export class FpsEngine {
     this.playerPos.x += _dir.x * speed * dt;
     this.playerPos.z += _dir.z * speed * dt;
 
-    // Gravity & ground check
     this.playerVel.y -= 19.5 * dt;
     this.playerPos.y += this.playerVel.y * dt;
 
@@ -1255,7 +1123,6 @@ export class FpsEngine {
     const playerHeight = this.isCrouching ? 1.15 : 1.8;
     this.resolveCollisions(this.playerPos, 0.45, playerHeight);
 
-    // Smooth crouch eye height & FOV
     const targetEye = this.isCrouching ? 1.05 : 1.68;
     this.currentEyeHeight = THREE.MathUtils.damp(this.currentEyeHeight, targetEye, 12, dt);
 
@@ -1270,11 +1137,9 @@ export class FpsEngine {
       this.camera.updateProjectionMatrix();
     }
 
-    // Recoil recovery
     this.recoilPitch = THREE.MathUtils.damp(this.recoilPitch, 0, 12, dt);
     this.recoilKickZ = THREE.MathUtils.damp(this.recoilKickZ, 0, 16, dt);
 
-    // Camera transform (FPS vs TPS)
     _euler.set(
       THREE.MathUtils.clamp(this.pitch + this.recoilPitch, -Math.PI / 2.1, Math.PI / 2.1),
       this.yaw,
@@ -1301,24 +1166,23 @@ export class FpsEngine {
       }
     }
 
-    // Weapon bobbing & reload tilt
     const vm = this.viewModels.get(this.currentWeaponId);
     if (vm) {
       const moving = _dir.lengthSq() > 0.01 && this.isGrounded;
-      const bob = moving ? Math.sin(performance.now() * (this.isSprinting ? 0.014 : 0.009)) * 0.016 : 0;
+      const bob = moving
+        ? Math.sin(performance.now() * (this.isSprinting ? 0.014 : 0.009)) * 0.016
+        : 0;
       const reloadTilt = this.reloading ? -0.45 : 0;
       vm.group.position.set(0, bob + reloadTilt * 0.25, this.recoilKickZ);
       vm.group.rotation.x = reloadTilt;
     }
 
-    // Automatic fire
     if (this.mouseDown && spec.autoFire) {
       this.tryShoot();
     }
   }
 
-  private updateWorldDynamics(dt: number, elapsed: number) {
-    // Doors smooth slide & auto-open for friendly bots/player
+  updateWorldDynamics(dt, elapsed) {
     for (const door of this.builtMap.doors) {
       const distPlayer = _v1
         .set(door.closedPos.x, 0, door.closedPos.z)
@@ -1331,14 +1195,12 @@ export class FpsEngine {
       col.maxY = 3.6 + door.openAmount * 3.4;
     }
 
-    // Moving platforms
     for (const plat of this.builtMap.movingPlatforms) {
       const offset = Math.sin(elapsed * plat.speed + plat.phase) * plat.amplitude;
       plat.mesh.position.copy(plat.basePos);
       plat.mesh.position[plat.axis] += offset;
     }
 
-    // Physics crates friction & bounds
     for (const crate of this.builtMap.physicsCrates) {
       if (crate.velocity.lengthSq() > 0.001) {
         crate.mesh.position.addScaledVector(crate.velocity, dt);
@@ -1354,11 +1216,8 @@ export class FpsEngine {
       }
     }
 
-    // Snowfall
     if (this.builtMap.snowPoints) {
-      const attr = this.builtMap.snowPoints.geometry.getAttribute(
-        'position',
-      ) as THREE.BufferAttribute;
+      const attr = this.builtMap.snowPoints.geometry.getAttribute('position');
       for (let i = 0; i < attr.count; i++) {
         let y = attr.getY(i) - dt * 2.4;
         if (y < 0.2) y = 18;
@@ -1367,7 +1226,6 @@ export class FpsEngine {
       attr.needsUpdate = true;
     }
 
-    // Targets animation & proximity collection (stars / checkpoints)
     for (const t of this.targets) {
       if (!t.active) {
         if (t.respawnTimer > 0) {
@@ -1385,15 +1243,13 @@ export class FpsEngine {
 
       t.group.rotation.y += dt * 1.6;
       if (t.kind !== 'checkpoint') {
-        t.group.position.y =
-          t.basePos.y + Math.sin(elapsed * 2.2 + t.phase) * 0.28;
+        t.group.position.y = t.basePos.y + Math.sin(elapsed * 2.2 + t.phase) * 0.28;
       }
       if (t.kind === 'meteor') {
         t.group.position.x = THREE.MathUtils.damp(t.group.position.x, 0, 0.25, dt);
         t.group.position.z = THREE.MathUtils.damp(t.group.position.z, 0, 0.25, dt);
       }
 
-      // Walk-over pickup for stars & maze checkpoints
       if (t.kind === 'star' || t.kind === 'checkpoint') {
         const dist = _v1
           .set(t.group.position.x, 0, t.group.position.z)
@@ -1413,7 +1269,6 @@ export class FpsEngine {
       }
     }
 
-    // Bomb mission timer & defusal
     if (this.game.mechanic === 'bomb-mission' && this.bombState === 'planted') {
       this.bombTimer -= dt;
       this.bombBeepTimer -= dt;
@@ -1443,7 +1298,6 @@ export class FpsEngine {
       }
     }
 
-    // CTF flag pickup & delivery
     if (this.game.mechanic === 'capture-flag' && this.enemyFlagProp) {
       if (!this.carryingFlag) {
         const distFlag = this.enemyFlagProp.position.distanceTo(this.playerPos);
@@ -1467,11 +1321,10 @@ export class FpsEngine {
       }
     }
 
-    // Actors AI update
     this.updateActors(dt);
   }
 
-  private updateActors(dt: number) {
+  updateActors(dt) {
     const isCartoon = this.game.ageGroup === '3-5' || this.game.ageGroup === '6-9';
     const diffFireRate =
       this.difficulty === 'easy' ? 1.8 : this.difficulty === 'hard' ? 0.95 : 1.35;
@@ -1485,16 +1338,13 @@ export class FpsEngine {
             actor.hp = actor.maxHp;
             actor.group.visible = true;
             const sp =
-              this.builtMap.spawnEnemies[
-                actor.id % this.builtMap.spawnEnemies.length
-              ];
+              this.builtMap.spawnEnemies[actor.id % this.builtMap.spawnEnemies.length];
             actor.group.position.set(sp.x, 0, sp.z);
           }
         }
         continue;
       }
 
-      // HelperBot proximity activation (3-5)
       if (actor.role === 'helperBot' && !actor.activated) {
         if (actor.group.position.distanceTo(this.playerPos) < 2.6) {
           actor.activated = true;
@@ -1513,7 +1363,6 @@ export class FpsEngine {
         continue;
       }
 
-      // Hostage VIP follow & extraction
       if (actor.role === 'hostage') {
         if (actor.following && !actor.rescued) {
           _v1.copy(this.playerPos).sub(actor.group.position);
@@ -1539,9 +1388,8 @@ export class FpsEngine {
         continue;
       }
 
-      // Combat AI (enemy or ally)
       let targetPos = this.playerPos;
-      let targetActor: AiActor | null = null;
+      let targetActor = null;
 
       if (actor.role === 'ally') {
         const enemies = this.actors.filter((a) => a.role === 'enemy' && a.alive);
@@ -1552,7 +1400,6 @@ export class FpsEngine {
           targetPos = actor.patrolTarget;
         }
       } else {
-        // Enemy picks closest between player and allies
         let bestDist = actor.group.position.distanceTo(this.playerPos);
         targetPos = this.playerPos;
         for (const ally of this.actors) {
@@ -1573,8 +1420,7 @@ export class FpsEngine {
 
       if (dist > 0.1) {
         _v1.normalize();
-        const desiredAngle = Math.atan2(_v1.x, _v1.z);
-        actor.group.rotation.y = desiredAngle;
+        actor.group.rotation.y = Math.atan2(_v1.x, _v1.z);
       }
 
       const desiredRange = actor.role === 'enemy' ? 11 : 9;
@@ -1589,7 +1435,6 @@ export class FpsEngine {
         actor.leftArm.rotation.x = -swing * 0.6;
       }
 
-      // AI firing with line-of-sight check
       actor.fireCooldown -= dt;
       if (actor.fireCooldown <= 0 && dist < 34) {
         actor.fireCooldown =
@@ -1624,7 +1469,6 @@ export class FpsEngine {
               }
             }
           } else if (actor.role === 'enemy' && targetPos === this.playerPos) {
-            // Enemy shoots player (gentle shield tap for 6-9, tactical damage for 10-20)
             const hitChance =
               this.difficulty === 'easy' ? 0.35 : this.difficulty === 'hard' ? 0.7 : 0.52;
             if (Math.random() < hitChance && this.game.ageGroup !== '3-5') {
@@ -1637,7 +1481,7 @@ export class FpsEngine {
     }
   }
 
-  private applyDamageToPlayer(amount: number) {
+  applyDamageToPlayer(amount) {
     if (this.status !== 'playing' || this.game.ageGroup === '3-5') return;
     this.damageFlashAt = performance.now();
     if (this.armor > 0) {
@@ -1654,7 +1498,6 @@ export class FpsEngine {
         this.health = 0;
         this.finishGame(false, 'Operator safdan chiqdi — raund boy berildi.');
       } else {
-        // Respawn in arcade/skirmish modes with score penalty
         this.health = this.maxHealth;
         this.armor = Math.round(this.maxArmor * 0.5);
         this.playerPos.copy(this.builtMap.spawnPlayer);
@@ -1663,7 +1506,7 @@ export class FpsEngine {
     }
   }
 
-  private updateEffects(dt: number) {
+  updateEffects(dt) {
     if (this.muzzleFlashTimer > 0) {
       this.muzzleFlashTimer -= dt;
       if (this.muzzleFlashTimer <= 0) {
@@ -1680,7 +1523,7 @@ export class FpsEngine {
       if (tr.life <= 0) {
         this.scene.remove(tr.mesh);
         tr.mesh.geometry.dispose();
-        (tr.mesh.material as THREE.Material).dispose();
+        tr.mesh.material.dispose();
         this.tracers.splice(i, 1);
       }
     }
@@ -1690,19 +1533,18 @@ export class FpsEngine {
       pt.life -= dt;
       if (pt.life <= 0) {
         this.scene.remove(pt.mesh);
-        (pt.mesh.material as THREE.Material).dispose();
+        pt.mesh.material.dispose();
         this.particles.splice(i, 1);
         continue;
       }
       pt.mesh.position.addScaledVector(pt.vel, dt);
       if (!pt.isSmoke) pt.vel.y -= 12 * dt;
       else pt.mesh.scale.addScalar(dt * 1.8);
-      const mat = pt.mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = Math.max(0, pt.life / pt.maxLife);
+      pt.mesh.material.opacity = Math.max(0, pt.life / pt.maxLife);
     }
   }
 
-  private computeInteractPrompt(): string | null {
+  computeInteractPrompt() {
     for (const door of this.builtMap.doors) {
       if (
         _v1
@@ -1732,9 +1574,9 @@ export class FpsEngine {
     return null;
   }
 
-  private emitHud() {
+  emitHud() {
     const spec = WEAPONS[this.currentWeaponId];
-    const entitiesMinimap: HudSnapshot['entitiesMinimap'] = [];
+    const entitiesMinimap = [];
 
     for (const a of this.actors) {
       if (!a.alive) continue;
@@ -1783,8 +1625,6 @@ export class FpsEngine {
       timeRemaining: Math.max(0, Math.ceil(this.timeRemaining)),
       round: this.round,
       roundsTotal: this.game.roundsTotal,
-      allyAlive: this.actors.filter((a) => a.role === 'ally' && a.alive).length + 1,
-      enemyAlive: this.actors.filter((a) => a.role === 'enemy' && a.alive).length,
       missionText: this.game.missionDesc,
       targetColorHint:
         this.game.mechanic === 'color-match' ? this.targetColorObj.uz : undefined,
@@ -1805,8 +1645,8 @@ export class FpsEngine {
     });
   }
 
-  private afterDraw(cb: () => void) {
-    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+  afterDraw(cb) {
+    const gl = this.renderer.getContext();
     const sync = gl.fenceSync ? gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0) : null;
     if (!sync) {
       this.frameId = window.setTimeout(cb, 80);
@@ -1826,7 +1666,7 @@ export class FpsEngine {
     this.frameId = window.setTimeout(poll, 5);
   }
 
-  private startLoop() {
+  startLoop() {
     const tick = () => {
       if (this.disposed) return;
       const rawDt = this.clock.getDelta();
@@ -1885,7 +1725,7 @@ export class FpsEngine {
     }
   }
 
-  public dispose() {
+  dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.frameId);
     clearTimeout(this.frameId);

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "node -e \"import('fs').then(async fs => { import('child_process').then(cp => { const walk = d => fs.readdirSync(d, {withFileTypes:true}).flatMap(e => e.isDirectory() ? walk(d+'/'+e.name) : e.name.endsWith('.js') ? [d+'/'+e.name] : []); for (const f of walk('src/js')) cp.execFileSync(process.execPath, ['--check', f]); console.log('JS syntax OK'); }); })\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

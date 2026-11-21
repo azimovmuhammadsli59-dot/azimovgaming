@@ -1,23 +1,4 @@
-import { WeaponId } from '../types/game';
-
-export interface WeaponSpec {
-  id: WeaponId;
-  nameUz: string;
-  damage: number;
-  fireInterval: number; // seconds between shots
-  magSize: number;
-  reserveAmmo: number;
-  reloadTime: number; // seconds
-  recoilKick: number;
-  spread: number;
-  autoFire: boolean;
-  range: number;
-  scopeZoom: number; // 1 = no zoom, > 1 = ADS/scope FOV zoom
-  beamColor: string;
-  muzzleColor: string;
-}
-
-export const WEAPONS: Record<WeaponId, WeaponSpec> = {
+export const WEAPONS = {
   wand: {
     id: 'wand',
     nameUz: 'Sehrli Nur Tayoqchasi',

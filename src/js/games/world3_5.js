@@ -1,6 +1,4 @@
-import { GameDefinition } from '../types/game';
-
-export const GAMES_WORLD_3_5: GameDefinition[] = [
+export const GAMES_WORLD_3_5 = [
   {
     id: 'rangli-nishonlar',
     number: 1,

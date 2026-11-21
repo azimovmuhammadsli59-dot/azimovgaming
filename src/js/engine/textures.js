@@ -1,31 +1,26 @@
 import * as THREE from 'three';
 
-function makeCanvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+function makeCanvas(size) {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d');
   return [canvas, ctx];
 }
 
-export function createGridFloorTexture(
-  baseHex: string,
-  accentHex: string,
-  maxAnisotropy: number,
-  tileCount = 4,
-): THREE.CanvasTexture {
+export function createGridFloorTexture(baseHex, accentHex, maxAnisotropy, tileCount = 4) {
   const size = 512;
   const [canvas, ctx] = makeCanvas(size);
 
   ctx.fillStyle = baseHex;
   ctx.fillRect(0, 0, size, size);
 
-  // Subtle surface grain
   for (let i = 0; i < 1800; i++) {
     const x = Math.random() * size;
     const y = Math.random() * size;
     const alpha = Math.random() * 0.06;
-    ctx.fillStyle = Math.random() > 0.5 ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`;
+    ctx.fillStyle =
+      Math.random() > 0.5 ? `rgba(255,255,255,${alpha})` : `rgba(0,0,0,${alpha})`;
     ctx.fillRect(x, y, 3, 3);
   }
 
@@ -58,29 +53,22 @@ export function createGridFloorTexture(
   return tex;
 }
 
-export function createWallPanelTexture(
-  baseHex: string,
-  trimHex: string,
-  maxAnisotropy: number,
-): THREE.CanvasTexture {
+export function createWallPanelTexture(baseHex, trimHex, maxAnisotropy) {
   const size = 256;
   const [canvas, ctx] = makeCanvas(size);
 
   ctx.fillStyle = baseHex;
   ctx.fillRect(0, 0, size, size);
 
-  // Architectural seams
   ctx.fillStyle = 'rgba(0,0,0,0.12)';
   ctx.fillRect(0, size * 0.48, size, 4);
   ctx.fillRect(size * 0.48, 0, 4, size);
 
-  // Trim stripe near bottom
   ctx.fillStyle = trimHex;
   ctx.globalAlpha = 0.65;
   ctx.fillRect(0, size - 22, size, 12);
   ctx.globalAlpha = 1;
 
-  // Rivets / detail dots
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   for (let x = 24; x < size; x += 64) {
     ctx.fillRect(x, 18, 5, 5);
@@ -95,11 +83,7 @@ export function createWallPanelTexture(
   return tex;
 }
 
-export function createCrateTexture(
-  baseHex: string,
-  stripeHex: string,
-  maxAnisotropy: number,
-): THREE.CanvasTexture {
+export function createCrateTexture(baseHex, stripeHex, maxAnisotropy) {
   const size = 256;
   const [canvas, ctx] = makeCanvas(size);
 
@@ -110,7 +94,6 @@ export function createCrateTexture(
   ctx.lineWidth = 14;
   ctx.strokeRect(7, 7, size - 14, size - 14);
 
-  // Diagonal brace
   ctx.beginPath();
   ctx.moveTo(14, 14);
   ctx.lineTo(size - 14, size - 14);
@@ -127,7 +110,7 @@ export function createCrateTexture(
   return tex;
 }
 
-export function createContactShadowTexture(): THREE.CanvasTexture {
+export function createContactShadowTexture() {
   const size = 128;
   const [canvas, ctx] = makeCanvas(size);
   const grad = ctx.createRadialGradient(
@@ -143,6 +126,5 @@ export function createContactShadowTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  return tex;
+  return new THREE.CanvasTexture(canvas);
 }

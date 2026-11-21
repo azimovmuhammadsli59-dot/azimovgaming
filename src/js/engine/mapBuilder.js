@@ -1,68 +1,11 @@
 import * as THREE from 'three';
-import { GameDefinition } from '../types/game';
 import {
   createCrateTexture,
   createGridFloorTexture,
   createWallPanelTexture,
-} from './ProceduralTextures';
+} from './textures.js';
 
-export interface AabbCollider {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-  minZ: number;
-  maxZ: number;
-  isDoor?: boolean;
-  doorId?: string;
-}
-
-export interface AnimatedDoor {
-  id: string;
-  mesh: THREE.Mesh;
-  closedPos: THREE.Vector3;
-  openPos: THREE.Vector3;
-  openAmount: number;
-  targetOpen: number;
-  colliderIndex: number;
-}
-
-export interface MovingPlatform {
-  mesh: THREE.Mesh;
-  basePos: THREE.Vector3;
-  axis: 'x' | 'y' | 'z';
-  amplitude: number;
-  speed: number;
-  phase: number;
-}
-
-export interface PhysicsCrate {
-  mesh: THREE.Mesh;
-  velocity: THREE.Vector3;
-  halfSize: number;
-  colliderIndex: number;
-}
-
-export interface BuiltMap {
-  root: THREE.Group;
-  colliders: AabbCollider[];
-  worldMeshes: THREE.Object3D[];
-  doors: AnimatedDoor[];
-  movingPlatforms: MovingPlatform[];
-  physicsCrates: PhysicsCrate[];
-  spawnPlayer: THREE.Vector3;
-  spawnAllies: THREE.Vector3[];
-  spawnEnemies: THREE.Vector3[];
-  bombSites: THREE.Vector3[];
-  extractionZone: THREE.Vector3;
-  homeFlagPos: THREE.Vector3;
-  enemyFlagPos: THREE.Vector3;
-  arenaHalfExtent: number;
-  snowPoints: THREE.Points | null;
-  dispose: () => void;
-}
-
-function mulberry32(seed: number) {
+function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
     a |= 0;
@@ -73,28 +16,24 @@ function mulberry32(seed: number) {
   };
 }
 
-export function buildGameMap(
-  game: GameDefinition,
-  maxAnisotropy: number,
-  enableShadows: boolean,
-): BuiltMap {
+export function buildGameMap(game, maxAnisotropy, enableShadows) {
   const rng = mulberry32(game.mapSeed);
   const root = new THREE.Group();
-  const colliders: AabbCollider[] = [];
-  const worldMeshes: THREE.Object3D[] = [];
-  const doors: AnimatedDoor[] = [];
-  const movingPlatforms: MovingPlatform[] = [];
-  const physicsCrates: PhysicsCrate[] = [];
+  const colliders = [];
+  const worldMeshes = [];
+  const doors = [];
+  const movingPlatforms = [];
+  const physicsCrates = [];
 
-  const geometries: THREE.BufferGeometry[] = [];
-  const materials: THREE.Material[] = [];
-  const textures: THREE.Texture[] = [];
+  const geometries = [];
+  const materials = [];
+  const textures = [];
 
-  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+  const trackGeo = (g) => {
     geometries.push(g);
     return g;
   };
-  const trackMat = <T extends THREE.Material>(m: T): T => {
+  const trackMat = (m) => {
     materials.push(m);
     return m;
   };
@@ -102,13 +41,7 @@ export function buildGameMap(
   const p = game.mapPalette;
   const arenaHalf = game.ageGroup === '3-5' ? 24 : 30;
 
-  // Floor textures & main terrain
-  const floorTex = createGridFloorTexture(
-    p.groundColor,
-    p.groundAccent,
-    maxAnisotropy,
-    4,
-  );
+  const floorTex = createGridFloorTexture(p.groundColor, p.groundAccent, maxAnisotropy, 4);
   textures.push(floorTex);
   floorTex.repeat.set(arenaHalf / 2, arenaHalf / 2);
 
@@ -120,7 +53,6 @@ export function buildGameMap(
     }),
   );
 
-  // Extended terrain plane (220x220) so outdoor maps seamlessly meet horizon fog
   const terrainSize = game.mapFeatures.isOutdoor ? 220 : arenaHalf * 2 + 4;
   const floorMesh = new THREE.Mesh(
     trackGeo(new THREE.PlaneGeometry(terrainSize, terrainSize)),
@@ -131,7 +63,6 @@ export function buildGameMap(
   root.add(floorMesh);
   worldMeshes.push(floorMesh);
 
-  // Optional water moat/harbor plane
   if (game.mapFeatures.hasWaterPlane) {
     const waterMat = trackMat(
       new THREE.MeshStandardMaterial({
@@ -151,7 +82,6 @@ export function buildGameMap(
     root.add(waterMesh);
   }
 
-  // Materials for walls, trim, crates
   const wallTex = createWallPanelTexture(p.wallColor, p.trimColor, maxAnisotropy);
   textures.push(wallTex);
   wallTex.repeat.set(2, 1);
@@ -192,16 +122,7 @@ export function buildGameMap(
     }),
   );
 
-  const addSolidBox = (
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-    h: number,
-    d: number,
-    mat: THREE.Material = wallMat,
-    cast = true,
-  ) => {
+  const addSolidBox = (x, y, z, w, h, d, mat = wallMat, cast = true) => {
     const geo = trackGeo(new THREE.BoxGeometry(w, h, d));
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y + h / 2, z);
@@ -220,16 +141,13 @@ export function buildGameMap(
     return mesh;
   };
 
-  // Perimeter boundaries
   if (!game.mapFeatures.isOutdoor) {
-    // Indoor facility walls + ceiling girders + light panels
     const wallH = 8.5;
     addSolidBox(0, 0, -arenaHalf, arenaHalf * 2 + 2, wallH, 1.5);
     addSolidBox(0, 0, arenaHalf, arenaHalf * 2 + 2, wallH, 1.5);
     addSolidBox(-arenaHalf, 0, 0, 1.5, wallH, arenaHalf * 2);
     addSolidBox(arenaHalf, 0, 0, 1.5, wallH, arenaHalf * 2);
 
-    // Ceiling & overhead light beams
     const ceilingMesh = new THREE.Mesh(
       trackGeo(new THREE.PlaneGeometry(arenaHalf * 2 + 2, arenaHalf * 2 + 2)),
       trackMat(
@@ -253,14 +171,12 @@ export function buildGameMap(
       root.add(strip);
     }
   } else {
-    // Outdoor arena: low tactical boundary barrier + natural rocks/trees extending outside!
     const fenceH = game.ageGroup === '3-5' ? 1.8 : 2.6;
     addSolidBox(0, 0, -arenaHalf, arenaHalf * 2, fenceH, 1.2, trimMat);
     addSolidBox(0, 0, arenaHalf, arenaHalf * 2, fenceH, 1.2, trimMat);
     addSolidBox(-arenaHalf, 0, 0, 1.2, fenceH, arenaHalf * 2, trimMat);
     addSolidBox(arenaHalf, 0, 0, 1.2, fenceH, arenaHalf * 2, trimMat);
 
-    // Distant environmental props (InstancedMesh rock formations / trees outside perimeter)
     const rockCount = 48;
     const rockGeo = trackGeo(new THREE.DodecahedronGeometry(3.2, 0));
     const rockMat = trackMat(
@@ -291,10 +207,8 @@ export function buildGameMap(
     root.add(rockInst);
   }
 
-  // Generate unique map layout depending on features & seed
   if (game.mapFeatures.hasMaze) {
-    // Structured cartoon maze corridors
-    const mazeBlocks: Array<[number, number, number, number]> = [
+    const mazeBlocks = [
       [-10, -8, 10, 1.5],
       [8, -8, 10, 1.5],
       [-6, 0, 1.5, 12],
@@ -308,23 +222,19 @@ export function buildGameMap(
       addSolidBox(bx, 0, bz, bw, 3.2, bd);
     });
   } else {
-    // Centerpiece structure unique to seed
     const layoutStyle = game.mapSeed % 3;
     if (layoutStyle === 0) {
-      // Tactical central tower / bunker with 4 cover wings
       addSolidBox(-5, 0, 0, 2.2, 4.2, 7.5);
       addSolidBox(5, 0, 0, 2.2, 4.2, 7.5);
       addSolidBox(0, 0, -9, 8, 3.2, 2);
       addSolidBox(0, 0, 9, 8, 3.2, 2);
     } else if (layoutStyle === 1) {
-      // Staggered lanes with angled mid cover
       addSolidBox(0, 0, 0, 5.5, 3.8, 5.5);
       addSolidBox(-11, 0, -6, 6, 3.2, 2.2);
       addSolidBox(11, 0, 6, 6, 3.2, 2.2);
       addSolidBox(-11, 0, 8, 2.2, 3.2, 6);
       addSolidBox(11, 0, -8, 2.2, 3.2, 6);
     } else {
-      // Twin courtyard pillars + long sightlines
       [-9, 9].forEach((px) => {
         [-9, 9].forEach((pz) => {
           addSolidBox(px, 0, pz, 3.4, 4.5, 3.4);
@@ -333,12 +243,10 @@ export function buildGameMap(
       addSolidBox(0, 0, 0, 3.6, 2.2, 3.6, trimMat);
     }
 
-    // Seeded cover crates & tactical blocks
     const coverCount = game.ageGroup === '3-5' ? 6 : 10;
     for (let i = 0; i < coverCount; i++) {
       const cx = (rng() - 0.5) * (arenaHalf * 1.45);
       const cz = (rng() - 0.5) * (arenaHalf * 1.45);
-      // Keep spawn zones clear
       if (Math.abs(cz) > arenaHalf - 7 && Math.abs(cx) < 8) continue;
       if (Math.hypot(cx, cz) < 5.5) continue;
       const w = 1.6 + rng() * 2.4;
@@ -348,14 +256,11 @@ export function buildGameMap(
     }
   }
 
-  // Animated sliding doors
   if (game.mapFeatures.hasDoors) {
-    const doorPositions: Array<[number, number]> = [
+    [
       [-13, 0],
       [13, 0],
-    ];
-    doorPositions.forEach(([dx, dz], idx) => {
-      // Door frame pillars
+    ].forEach(([dx, dz], idx) => {
       addSolidBox(dx, 0, dz - 2.4, 1.1, 4.2, 1.1, trimMat);
       addSolidBox(dx, 0, dz + 2.4, 1.1, 4.2, 1.1, trimMat);
 
@@ -404,7 +309,6 @@ export function buildGameMap(
     });
   }
 
-  // Catwalks / Elevated sniper platforms
   if (game.mapFeatures.hasCatwalks) {
     const platMat = trackMat(
       new THREE.MeshStandardMaterial({
@@ -415,12 +319,10 @@ export function buildGameMap(
     );
     addSolidBox(-arenaHalf + 4.5, 0, 0, 5.5, 3.0, 12, platMat);
     addSolidBox(arenaHalf - 4.5, 0, 0, 5.5, 3.0, 12, platMat);
-    // Stepped access blocks so player can jump/climb onto catwalks
     addSolidBox(-arenaHalf + 4.5, 0, 7.5, 3.5, 1.5, 3, crateMat);
     addSolidBox(arenaHalf - 4.5, 0, -7.5, 3.5, 1.5, 3, crateMat);
   }
 
-  // Moving platforms
   if (game.mapFeatures.hasMovingPlatforms) {
     const mMat = trackMat(
       new THREE.MeshStandardMaterial({
@@ -456,15 +358,13 @@ export function buildGameMap(
     });
   }
 
-  // Physics-interactive crates
   if (game.mapFeatures.hasPhysicsCrates) {
-    const cratePositions: Array<[number, number]> = [
+    [
       [-4, 5],
       [4, -5],
       [-7, -11],
       [7, 11],
-    ];
-    cratePositions.forEach(([kx, kz]) => {
+    ].forEach(([kx, kz]) => {
       const size = 1.35;
       const mesh = new THREE.Mesh(
         trackGeo(new THREE.BoxGeometry(size, size, size)),
@@ -495,7 +395,6 @@ export function buildGameMap(
     });
   }
 
-  // Bomb site glowing floor markers
   const bombSites = [new THREE.Vector3(-12, 0, -14), new THREE.Vector3(12, 0, -14)];
   if (game.mapFeatures.hasBombSites) {
     bombSites.forEach((site) => {
@@ -514,7 +413,6 @@ export function buildGameMap(
     });
   }
 
-  // Extraction zone marker (Hostage rescue / CTF home)
   const extractionZone = new THREE.Vector3(0, 0, arenaHalf - 5);
   if (game.mapFeatures.hasHostages || game.mapFeatures.hasFlags) {
     const extRing = new THREE.Mesh(
@@ -531,8 +429,7 @@ export function buildGameMap(
     root.add(extRing);
   }
 
-  // Weather snow particles
-  let snowPoints: THREE.Points | null = null;
+  let snowPoints = null;
   if (game.mapFeatures.hasWeatherSnow) {
     const count = 420;
     const positions = new Float32Array(count * 3);
@@ -555,24 +452,6 @@ export function buildGameMap(
     root.add(snowPoints);
   }
 
-  const spawnPlayer = new THREE.Vector3(0, 0, arenaHalf - 5);
-  const spawnAllies = [
-    new THREE.Vector3(-4, 0, arenaHalf - 6),
-    new THREE.Vector3(4, 0, arenaHalf - 6),
-    new THREE.Vector3(-8, 0, arenaHalf - 7),
-  ];
-  const spawnEnemies = [
-    new THREE.Vector3(-12, 0, -arenaHalf + 6),
-    new THREE.Vector3(12, 0, -arenaHalf + 6),
-    new THREE.Vector3(0, 0, -arenaHalf + 5),
-    new THREE.Vector3(-15, 0, -4),
-    new THREE.Vector3(15, 0, -4),
-    new THREE.Vector3(0, 0, -14),
-  ];
-
-  const homeFlagPos = new THREE.Vector3(0, 0, arenaHalf - 5);
-  const enemyFlagPos = new THREE.Vector3(0, 0, -arenaHalf + 5);
-
   return {
     root,
     colliders,
@@ -580,13 +459,24 @@ export function buildGameMap(
     doors,
     movingPlatforms,
     physicsCrates,
-    spawnPlayer,
-    spawnAllies,
-    spawnEnemies,
+    spawnPlayer: new THREE.Vector3(0, 0, arenaHalf - 5),
+    spawnAllies: [
+      new THREE.Vector3(-4, 0, arenaHalf - 6),
+      new THREE.Vector3(4, 0, arenaHalf - 6),
+      new THREE.Vector3(-8, 0, arenaHalf - 7),
+    ],
+    spawnEnemies: [
+      new THREE.Vector3(-12, 0, -arenaHalf + 6),
+      new THREE.Vector3(12, 0, -arenaHalf + 6),
+      new THREE.Vector3(0, 0, -arenaHalf + 5),
+      new THREE.Vector3(-15, 0, -4),
+      new THREE.Vector3(15, 0, -4),
+      new THREE.Vector3(0, 0, -14),
+    ],
     bombSites,
     extractionZone,
-    homeFlagPos,
-    enemyFlagPos,
+    homeFlagPos: new THREE.Vector3(0, 0, arenaHalf - 5),
+    enemyFlagPos: new THREE.Vector3(0, 0, -arenaHalf + 5),
     arenaHalfExtent: arenaHalf,
     snowPoints,
     dispose: () => {

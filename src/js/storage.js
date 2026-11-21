@@ -1,13 +1,6 @@
-import {
-  Achievement,
-  AgeGroup,
-  AppSettings,
-  PlayerProfile,
-} from '../types/game';
-
 const STORAGE_KEY = 'aql_arena_profile_v1';
 
-export const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS = {
   graphicsQuality: 'medium',
   soundEnabled: true,
   musicVolume: 0.4,
@@ -17,7 +10,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showFps: false,
 };
 
-export const ACHIEVEMENT_CATALOG: Omit<Achievement, 'unlockedAt'>[] = [
+export const ACHIEVEMENT_CATALOG = [
   {
     id: 'first_step',
     title: 'Birinchi qadam',
@@ -51,59 +44,29 @@ export const ACHIEVEMENT_CATALOG: Omit<Achievement, 'unlockedAt'>[] = [
 ];
 
 /**
- * StorageAdapter abstraction allows future seamless migration
- * from localStorage to Firebase Firestore + Auth without changing UI logic.
+ * Firebase-ready StorageAdapter abstraction (currently backed by localStorage).
  */
-export interface StorageAdapter {
-  loadProfile(): Promise<PlayerProfile | null>;
-  saveProfile(profile: PlayerProfile): Promise<void>;
-  clearProfile(): Promise<void>;
-}
-
-class LocalStorageAdapter implements StorageAdapter {
-  async loadProfile(): Promise<PlayerProfile | null> {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as PlayerProfile;
-      if (!parsed || !parsed.name || !parsed.ageGroup) return null;
-      return {
-        ...parsed,
-        settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
-        favorites: Array.isArray(parsed.favorites) ? parsed.favorites : [],
-        recentlyPlayed: Array.isArray(parsed.recentlyPlayed) ? parsed.recentlyPlayed : [],
-        gameStats: parsed.gameStats || {},
-        achievements: Array.isArray(parsed.achievements) ? parsed.achievements : [],
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  async saveProfile(profile: PlayerProfile): Promise<void> {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-    } catch {
-      // Ignore quota errors gracefully
-    }
-  }
-
-  async clearProfile(): Promise<void> {
+export const storageAdapter = {
+  async loadProfile() {
+    return loadProfileSync();
+  },
+  async saveProfile(profile) {
+    saveProfileSync(profile);
+  },
+  async clearProfile() {
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch {
-      // Ignore
+      // ignore
     }
-  }
-}
+  },
+};
 
-export const storageAdapter: StorageAdapter = new LocalStorageAdapter();
-
-export function loadProfileSync(): PlayerProfile | null {
+export function loadProfileSync() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as PlayerProfile;
+    const parsed = JSON.parse(raw);
     if (!parsed || !parsed.name || !parsed.ageGroup) return null;
     return {
       ...parsed,
@@ -118,15 +81,15 @@ export function loadProfileSync(): PlayerProfile | null {
   }
 }
 
-export function saveProfileSync(profile: PlayerProfile): void {
+export function saveProfileSync(profile) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
   } catch {
-    // Ignore
+    // ignore
   }
 }
 
-export function createInitialProfile(name: string, ageGroup: AgeGroup): PlayerProfile {
+export function createInitialProfile(name, ageGroup) {
   const now = Date.now();
   return {
     id: `player_${now.toString(36)}`,
@@ -144,12 +107,7 @@ export function createInitialProfile(name: string, ageGroup: AgeGroup): PlayerPr
   };
 }
 
-export function recordGameOutcome(
-  profile: PlayerProfile,
-  gameId: string,
-  score: number,
-  won: boolean,
-): PlayerProfile {
+export function recordGameOutcome(profile, gameId, score, won) {
   const now = Date.now();
   const prevStat = profile.gameStats[gameId] || {
     gameId,
@@ -186,7 +144,7 @@ export function recordGameOutcome(
   const unlockedIds = new Set(profile.achievements.map((a) => a.id));
   const nextAchievements = [...profile.achievements];
 
-  const tryUnlock = (id: string, condition: boolean) => {
+  const tryUnlock = (id, condition) => {
     if (condition && !unlockedIds.has(id)) {
       const def = ACHIEVEMENT_CATALOG.find((a) => a.id === id);
       if (def) {
@@ -203,7 +161,7 @@ export function recordGameOutcome(
   tryUnlock('veteran_15', nextTotalPlays >= 15);
   tryUnlock('legend_2500', nextTotalScore >= 2500);
 
-  const updated: PlayerProfile = {
+  const updated = {
     ...profile,
     updatedAt: now,
     totalGamesPlayed: nextTotalPlays,

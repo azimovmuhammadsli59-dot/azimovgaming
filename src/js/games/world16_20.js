@@ -1,6 +1,4 @@
-import { GameDefinition } from '../types/game';
-
-export const GAMES_WORLD_16_20: GameDefinition[] = [
+export const GAMES_WORLD_16_20 = [
   {
     id: 'counter-arena',
     number: 31,
